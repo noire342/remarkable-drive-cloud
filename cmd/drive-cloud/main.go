@@ -44,12 +44,17 @@ func run() error {
 	output := flags.String("output", "", "prepared local image path")
 	listenHost := flags.String("listen-host", "127.0.0.1", "loopback address for isolated protocol validation")
 	readOnly := flags.Bool("native-read-only", false, "reject every native write during protocol validation")
+	evidence := flags.String("evidence", "", "private physical migration evidence")
+	force := flags.Bool("force", false, "recover an interrupted current-boot migration")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return err
 	}
 	if command == "version" {
 		fmt.Println(version)
 		return nil
+	}
+	if handled, err := switchCommand(command, *base, *backup, *evidence, *force); handled {
+		return err
 	}
 	if command == "doctor" {
 		return json.NewEncoder(os.Stdout).Encode(deviceops.Inspect(*root))
@@ -163,6 +168,11 @@ func run() error {
 	defer engine.Close()
 	engine.SetExporter((nativeexport.Client{}).Export)
 	engine.SetExportVerifier(drivecloud.LibraryRevisionVerifier("/home/root/.local/share/remarkable/xochitl"))
+	_, recoveryErr := os.Stat(filepath.Join(*base, "private", "recovery-needed"))
+	if recoveryErr == nil {
+		engine.SetRecoveryNeeded(true)
+		*readOnly = true
+	}
 	backend := engine.NativeBackend(*readOnly)
 	bridge := app.NewAppWithBackend(cfg, backend)
 	engine.SetNotifier(func() { bridge.NotifySync(user) })
@@ -190,11 +200,18 @@ func run() error {
 		}
 	}
 	if _, err := os.Stat(filepath.Join(*base, "private", "active")); err == nil && !*readOnly {
-		engine.SetActive(true)
+		err = engine.SetActive(true)
+		if err != nil {
+			return err
+		}
 	} else {
-		engine.SetActive(false)
+		err = engine.SetActive(false)
+		if err != nil {
+			return err
+		}
 	}
-	if remote != nil && !*readOnly {
+	_, migrationErr := os.Stat(filepath.Join(*base, "private", "switch.pending.json"))
+	if remote != nil && !*readOnly && os.IsNotExist(migrationErr) {
 		go engine.Run(ctx)
 		engine.Wake()
 	}

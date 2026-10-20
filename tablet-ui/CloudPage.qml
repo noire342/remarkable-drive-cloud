@@ -97,7 +97,7 @@ Item {
             }
             Text {
                 width: parent.width; font.pixelSize: 25; wrapMode: Text.Wrap; color: "#555555"; textFormat: Text.PlainText
-                text: page.cloudState.active ? "Documenti sincronizzati direttamente con Google Drive." : "Migrazione non attiva. Il cloud precedente resta invariato finché backup e ripristino non sono verificati."
+                text: page.cloudState.recovery_needed ? "Collegamento sospeso dopo un’interruzione della migrazione. I documenti locali sono conservati; occorre completare il recupero dal programma sul computer." : page.cloudState.active ? "Documenti sincronizzati direttamente con Google Drive." : "Migrazione non attiva. Il cloud precedente resta invariato finché backup e ripristino non sono verificati."
             }
             Text {
                 width: parent.width; visible: page.connected && page.cloudState.linked === true
@@ -106,8 +106,8 @@ Item {
             }
             Text { width: parent.width; visible: page.connected && !!page.cloudState.phase; text: page.cloudState.phase === "exports" ? "Creazione delle copie su Drive in corso…" : "Sincronizzazione in corso…"; font.pixelSize: 25; wrapMode: Text.Wrap; textFormat: Text.PlainText }
             Text { width: parent.width; visible: !!page.cloudState.quota && !!page.cloudState.quota.limit; text: page.cloudState.quota ? "Spazio Drive: " + (Number(page.cloudState.quota.usage || 0) / 1000000000).toFixed(2) + " GB di " + (Number(page.cloudState.quota.limit || 0) / 1000000000).toFixed(2) + " GB" : ""; font.pixelSize: 25; wrapMode: Text.Wrap; textFormat: Text.PlainText }
-            CloudButton { text: page.cloudState.active ? "Sincronizza ora" : "Aggiorna copie su Drive"; enabled: page.connected && !!page.cloudState.ready && !page.busy; onClicked: page.action("/v1/sync", {}) }
-            CloudButton { text: page.cloudState.paused ? "Riprendi sincronizzazione" : "Metti in pausa"; enabled: page.connected && !!page.cloudState.ready && !page.busy; onClicked: page.action("/v1/pause", {paused: !page.cloudState.paused}) }
+            CloudButton { text: page.cloudState.active ? "Sincronizza ora" : "Aggiorna copie su Drive"; enabled: page.connected && !!page.cloudState.ready && !page.cloudState.recovery_needed && !page.busy; onClicked: page.action("/v1/sync", {}) }
+            CloudButton { text: page.cloudState.paused ? "Riprendi sincronizzazione" : "Metti in pausa"; enabled: page.connected && !!page.cloudState.ready && !page.cloudState.recovery_needed && !page.busy; onClicked: page.action("/v1/pause", {paused: !page.cloudState.paused}) }
             CloudButton { text: "Cronologia e ripristino"; enabled: page.connected && !!page.cloudState.ready && !page.busy; onClicked: page.showHistory() }
             Text { width: parent.width; visible: !!page.message; text: page.message; font.pixelSize: 25; wrapMode: Text.Wrap; color: "black"; textFormat: Text.PlainText }
             Text { width: parent.width; visible: !!page.cloudState.last_error && !page.cloudState.phase; text: page.errorLabel(page.cloudState.last_error); font.pixelSize: 25; wrapMode: Text.Wrap; color: "black"; textFormat: Text.PlainText }
@@ -126,7 +126,7 @@ Item {
                 CloudButton {
                     required property string modelData
                     text: "Ripristina: " + (page.selectedSnapshot.names && page.selectedSnapshot.names[modelData] ? page.selectedSnapshot.names[modelData] : "Documento")
-                    enabled: !page.busy
+                    enabled: !page.busy && !page.cloudState.recovery_needed
                     onClicked: page.action("/v1/restore", {snapshot_id: page.selectedSnapshot.snapshot_id, document_id: modelData})
                 }
             }

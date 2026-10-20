@@ -3,16 +3,19 @@
 An experimental, autonomous Google Drive document cloud for **reMarkable 2,
 firmware 3.27.3.0**. Based on a pinned fork of rmfakecloud; AGPL-3.0.
 
-**Development only. No stable release or production migration is available yet.**
+**Development only. No stable release is available yet.**
 The native `rm-sync` client talks to a local bridge. A committed native root is
 acknowledged only after its complete immutable snapshot has reached Drive.
 Xochitl remains responsible for applying document changes to its live library.
 
-The intended final configuration disconnects the official reMarkable document
-cloud and replaces the native **Settings → Cloud** page with Google Drive.
+The native configuration disconnects the official reMarkable document cloud
+and replaces **Settings → Cloud** with Google Drive.
 The installer currently installs the bridge and page in preparation mode. It
-does not yet perform a production account cutover. That cutover requires physical
-protocol/restore tests, a complete old-cloud inventory and verified Drive backup.
+does not automatically perform an account cutover. The experimental, guarded
+[migration procedure](docs/MIGRATION.md) requires physical protocol/restore
+tests, a complete old-cloud inventory and a verified Drive backup. A first
+19-item migration has passed the native batch and remote checksum checks on
+the development tablet; the full acceptance matrix is still incomplete.
 Do not delete your existing account or copy files into an active Xochitl library.
 
 ## Implemented development components

@@ -66,6 +66,16 @@ func (c Control) Handler() http.Handler {
 		output(w, 200, map[string]bool{"ready": true})
 	})
 	mux.HandleFunc("GET /v1/state", func(w http.ResponseWriter, r *http.Request) { output(w, 200, c.Engine.Status()) })
+	mux.HandleFunc("POST /v1/verify", func(w http.ResponseWriter, r *http.Request) {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+		defer cancel()
+		count, err := c.Engine.VerifyRemote(ctx)
+		if err != nil {
+			output(w, 503, map[string]string{"error": err.Error()})
+			return
+		}
+		output(w, 200, map[string]any{"verified_remote_documents": count, "status": c.Engine.Status()})
+	})
 	mux.HandleFunc("POST /v1/sync", func(w http.ResponseWriter, r *http.Request) {
 		c.Engine.Wake()
 		output(w, 202, map[string]bool{"queued": true})
@@ -98,6 +108,10 @@ func (c Control) Handler() http.Handler {
 		output(w, 200, entries)
 	})
 	mux.HandleFunc("POST /v1/restore", func(w http.ResponseWriter, r *http.Request) {
+		if c.Engine.Status().RecoveryNeeded {
+			output(w, 503, map[string]string{"error": "Complete the interrupted migration recovery first"})
+			return
+		}
 		var body struct {
 			Snapshot string `json:"snapshot_id"`
 			Document string `json:"document_id"`

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 set -eu
 base=/home/root/drive-cloud
-if [ -f "$base/private/active" ];then
+if [ -f "$base/private/active" ] || [ -f "$base/private/recovery-needed" ] || [ -f "$base/private/switch.pending.json" ];then
     printf '%s\n' 'Active Drive cloud detected. Reconcile/export your documents before disconnecting it; automatic return to the old cloud is blocked.' >&2
     exit 1
 fi

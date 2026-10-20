@@ -138,6 +138,55 @@ func TestDriveCreateOmitsReadOnlyFieldsAndFinalizesEmptyFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDriveUpdateOmitsReadOnlyIDAndParentList(t *testing.T) {
+	var server *httptest.Server
+	updated := false
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/drive/v3/files/existing":
+			json.NewEncoder(w).Encode(File{ID: "existing", MIME: "application/pdf", MD5: "old"})
+		case "/upload/drive/v3/files/existing":
+			if r.Method != "PATCH" {
+				t.Errorf("update method: %s", r.Method)
+			}
+			var fields map[string]any
+			json.NewDecoder(r.Body).Decode(&fields)
+			for _, key := range []string{"id", "parents"} {
+				if _, ok := fields[key]; ok {
+					http.Error(w, `{"error":{"errors":[{"reason":"invalid"}]}}`, 400)
+					return
+				}
+			}
+			updated = true
+			w.Header().Set("Location", server.URL+"/upload/update-session")
+		case "/upload/update-session":
+			if strings.HasPrefix(r.Header.Get("Content-Range"), "bytes */") {
+				w.WriteHeader(308)
+				return
+			}
+			data, _ := io.ReadAll(r.Body)
+			if string(data) != "new" {
+				t.Errorf("updated content: %q", data)
+			}
+			sum := md5.Sum(data)
+			json.NewEncoder(w).Encode(File{ID: "existing", MD5: hex.EncodeToString(sum[:])})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "updated.pdf")
+	os.WriteFile(path, []byte("new"), 0600)
+	d := &Drive{HTTP: server.Client(), Base: server.URL + "/drive/v3", UploadBase: server.URL + "/upload/drive/v3", Sessions: filepath.Join(dir, "sessions")}
+	if _, err := d.Put(context.Background(), File{ID: "existing", MIME: "application/pdf", Parents: []string{"library"}}, path); err != nil {
+		t.Fatal(err)
+	}
+	if !updated {
+		t.Fatal("existing PDF was not updated")
+	}
+}
 func TestUploadSessionCannotExfiltrateCredentials(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/drive/") {

@@ -1,6 +1,6 @@
 [Unit]
 Description=Google Drive document cloud for reMarkable
-After=network.target home.mount
+After=network.target home.mount remarkable-drive-cloud-recover.service
 StartLimitIntervalSec=600
 StartLimitBurst=3
 

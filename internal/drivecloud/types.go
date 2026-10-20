@@ -16,7 +16,7 @@ var ErrNotFound = errors.New("remote file not found")
 var ErrNotLinked = errors.New("Google Drive account not linked")
 
 type File struct {
-	ID         string            `json:"id"`
+	ID         string            `json:"id,omitempty"`
 	Name       string            `json:"name"`
 	MIME       string            `json:"mimeType"`
 	Parents    []string          `json:"parents,omitempty"`
@@ -119,6 +119,7 @@ type State struct {
 	Quota       Quota              `json:"quota"`
 }
 type Status struct {
+	RecoveryNeeded   bool      `json:"recovery_needed"`
 	Phase            string    `json:"phase"`
 	Active           bool      `json:"active"`
 	Linked           bool      `json:"linked"`

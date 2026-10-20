@@ -231,6 +231,30 @@ func addFixture(t *testing.T, e *Engine) *Document {
 	return doc
 }
 
+func TestUnchangedDriveFilenamePreservesNativePDFTitle(t *testing.T) {
+	e, r := setupEngine(t)
+	doc := fixture(t, e, "", "Original.pdf")
+	g, _ := e.currentGraph()
+	g.Documents[doc.ID] = doc
+	if err := e.commitGraph(context.Background(), g); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Cycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mapping := e.state.Mappings[doc.ID]
+	if _, err := r.Patch(context.Background(), mapping.DriveID, map[string]any{"name": "Original.pdf"}, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Cycle(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	g, _ = e.currentGraph()
+	if g.Documents[doc.ID].Text("visibleName") != "Original.pdf" {
+		t.Fatal("unchanged Drive name removed the native title suffix")
+	}
+}
+
 func TestNativeBackupReconstructsFromRemoteAndPreservesUUID(t *testing.T) {
 	e, _ := setupEngine(t)
 	doc := addFixture(t, e)

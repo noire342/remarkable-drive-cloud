@@ -27,20 +27,29 @@ import (
 )
 
 type Engine struct {
-	lock         fslock.Handle
-	closeOnce    sync.Once
-	status       atomic.Value
-	phase        string
-	mu           sync.Mutex
-	dir          string
-	objects      string
-	remote       Remote
-	state        State
-	wake         chan struct{}
-	notify       func()
-	exporter     func(string, string) (io.ReadCloser, error)
-	verifyExport func(*Document) error
-	now          func() time.Time
+	lock           fslock.Handle
+	closeOnce      sync.Once
+	status         atomic.Value
+	committedRoot  atomic.Value
+	nativeUser     string
+	stageMu        sync.Mutex
+	phase          string
+	recoveryNeeded bool
+	mu             sync.Mutex
+	dir            string
+	objects        string
+	remote         Remote
+	state          State
+	wake           chan struct{}
+	notify         func()
+	exporter       func(string, string) (io.ReadCloser, error)
+	verifyExport   func(*Document) error
+	now            func() time.Time
+}
+
+type nativeRootView struct {
+	Hash       string
+	Generation int64
 }
 
 func NewEngine(dir, objects, user string, remote Remote) (*Engine, error) {
@@ -50,7 +59,7 @@ func NewEngine(dir, objects, user string, remote Remote) (*Engine, error) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return nil, err
 	}
-	e := &Engine{dir: dir, objects: objects, remote: remote, wake: make(chan struct{}, 1), now: time.Now}
+	e := &Engine{dir: dir, objects: objects, remote: remote, nativeUser: user, wake: make(chan struct{}, 1), now: time.Now}
 	lock, err := fslock.Lock(filepath.Join(dir, "engine.lock"))
 	if err != nil {
 		return nil, fmt.Errorf("another cloud process owns this state: %w", err)
@@ -74,6 +83,7 @@ func NewEngine(dir, objects, user string, remote Remote) (*Engine, error) {
 		return nil, fmt.Errorf("invalid state; synchronization suspended")
 	}
 	e.status.Store(e.statusUnlocked())
+	e.committedRoot.Store(nativeRootView{e.state.Current.Root, e.state.Current.Generation})
 	success = true
 	return e, nil
 }
@@ -85,8 +95,14 @@ func (e *Engine) Close() {
 	})
 }
 func (e *Engine) save() error {
+	if err := saveJSON(filepath.Join(e.dir, "state.json"), &e.state); err != nil {
+		return err
+	}
 	e.status.Store(e.statusUnlocked())
-	return saveJSON(filepath.Join(e.dir, "state.json"), &e.state)
+	// Reads stay available during slow Drive work, without publishing a root
+	// before both its remote commit and the local state are durable.
+	e.committedRoot.Store(nativeRootView{e.state.Current.Root, e.state.Current.Generation})
+	return nil
 }
 func (e *Engine) objectPath(hash string) string { return filepath.Join(e.objects, hash) }
 func (e *Engine) SetExporter(exporter func(string, string) (io.ReadCloser, error)) {
@@ -129,7 +145,7 @@ func (e *Engine) statusUnlocked() Status {
 			exports++
 		}
 	}
-	return Status{Phase: e.phase, Active: e.state.Active, Linked: e.remote != nil, Ready: e.state.Initialized, Paused: e.state.Paused, Account: e.state.Account, Generation: e.state.Current.Generation, Pending: snapshots + exports, PendingSnapshots: snapshots, PendingExports: exports, LastSync: e.state.LastSync, LastError: e.state.LastError, Quota: e.state.Quota}
+	return Status{RecoveryNeeded: e.recoveryNeeded, Phase: e.phase, Active: e.state.Active, Linked: e.remote != nil, Ready: e.state.Initialized, Paused: e.state.Paused, Account: e.state.Account, Generation: e.state.Current.Generation, Pending: snapshots + exports, PendingSnapshots: snapshots, PendingExports: exports, LastSync: e.state.LastSync, LastError: e.state.LastError, Quota: e.state.Quota}
 }
 func (e *Engine) Pause(paused bool) error {
 	e.mu.Lock()
@@ -273,15 +289,18 @@ func (e *Engine) putObject(id string, reader io.Reader) error {
 	})
 }
 func (e *Engine) StoreBlob(user, id string, reader io.Reader, lastGen int64) (int64, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if user != e.state.User {
+	if user != e.nativeUser {
 		return 0, fmt.Errorf("unexpected native user")
 	}
 	if id != "root" {
+		// Immutable staging does not publish a root and needs no Drive mutex.
+		e.stageMu.Lock()
+		defer e.stageMu.Unlock()
 		err := e.putObject(id, reader)
 		return 1, err
 	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	b, err := io.ReadAll(io.LimitReader(reader, 65))
 	if err != nil {
 		return 0, err
@@ -300,21 +319,27 @@ func (e *Engine) StoreBlob(user, id string, reader io.Reader, lastGen int64) (in
 	return gen, err
 }
 func (e *Engine) LoadBlob(user, id string) (io.ReadCloser, int64, int64, string, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if user != e.state.User {
+	if user != e.nativeUser {
 		return nil, 0, 0, "", fmt.Errorf("unexpected native user")
 	}
 	if id == "root" {
-		if e.state.Current.Root == "" {
+		view := e.committedRoot.Load().(nativeRootView)
+		if view.Hash == "" {
 			return nil, 0, 0, "", fs.ErrorNotFound
 		}
-		body := []byte(e.state.Current.Root)
-		return io.NopCloser(bytes.NewReader(body)), e.state.Current.Generation, int64(len(body)), crc(body), nil
+		body := []byte(view.Hash)
+		return io.NopCloser(bytes.NewReader(body)), view.Generation, int64(len(body)), crc(body), nil
 	}
 	if !nativeHash.MatchString(id) {
 		return nil, 0, 0, "", fs.ErrorNotFound
 	}
+	if f, err := os.Open(e.objectPath(id)); err == nil {
+		return openedNativeBlob(f)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, 0, 0, "", err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if err := e.ensureLocal(context.Background(), id); err != nil {
 		return nil, 0, 0, "", err
 	}
@@ -322,6 +347,10 @@ func (e *Engine) LoadBlob(user, id string) (io.ReadCloser, int64, int64, string,
 	if err != nil {
 		return nil, 0, 0, "", fs.ErrorNotFound
 	}
+	return openedNativeBlob(f)
+}
+
+func openedNativeBlob(f *os.File) (io.ReadCloser, int64, int64, string, error) {
 	h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
 	n, err := io.Copy(h, f)
 	if err != nil {
@@ -500,7 +529,7 @@ func (e *Engine) Run(ctx context.Context) {
 		case <-timer.C:
 		}
 		status := e.Status()
-		if status.Paused || (!status.Active && status.PendingExports == 0 && status.PendingSnapshots == 0) {
+		if status.RecoveryNeeded || status.Paused || (!status.Active && status.PendingExports == 0 && status.PendingSnapshots == 0) {
 			continue
 		}
 		e.mu.Lock()
@@ -603,4 +632,11 @@ func (e *Engine) SetActive(active bool) error {
 	defer e.mu.Unlock()
 	e.state.Active = active
 	return e.save()
+}
+
+func (e *Engine) SetRecoveryNeeded(required bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.recoveryNeeded = required
+	e.status.Store(e.statusUnlocked())
 }

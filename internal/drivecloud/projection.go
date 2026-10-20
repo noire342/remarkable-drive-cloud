@@ -150,9 +150,12 @@ func (e *Engine) applyDriveChange(ctx context.Context, id string, change Change)
 	deleted := change.Removed || f == nil || f.Trashed
 	name, parent := mapping.Name, mapping.Parent
 	if f != nil {
-		name = f.Name
-		if !doc.Folder() {
-			name = strings.TrimSuffix(name, filepath.Ext(name))
+		if doc.Folder() {
+			name = f.Name
+		} else if f.Name != strings.TrimSuffix(mapping.Name, ".pdf")+".pdf" {
+			// An unchanged derived filename is not a native rename. In
+			// particular, a native title may itself end in .pdf.
+			name = strings.TrimSuffix(f.Name, filepath.Ext(f.Name))
 		}
 		if !deleted {
 			var ok bool
@@ -360,6 +363,11 @@ func (e *Engine) publishOne(ctx context.Context, doc *Document, parent string) e
 	}
 	if err == nil && remote.Properties["vault"] != "" && remote.Properties["vault"] != e.state.Vault {
 		return ErrSuspended
+	}
+	if err == nil && exists && m.DriveVersion != "" && remote.Version != m.DriveVersion {
+		// A user can edit Drive after this cycle's reconciliation pass. Leave
+		// that file alone; reconcile its newer revision on the next pass.
+		return nil
 	}
 	if doc.Deleted() {
 		if err == nil && !remote.Trashed {
