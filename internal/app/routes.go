@@ -20,6 +20,10 @@ const (
 )
 
 func (app *App) registerRoutes(router *gin.Engine) {
+	if app.cfg.TabletOnly {
+		app.registerTabletRoutes(router)
+		return
+	}
 	//endpoints discovery
 	router.GET("/discovery/v1/endpoints", func(c *gin.Context) {
 		mqttHost := ""

@@ -1,0 +1,84 @@
+{
+  "reviewed_on": "2026-10-20",
+  "status": "development dependency; not bundled in this project release archive",
+  "download": {
+    "repository": "https://github.com/asivery/rm-xovi-extensions",
+    "tag": "pre-v20-08092026",
+    "url": "https://github.com/asivery/rm-xovi-extensions/releases/download/pre-v20-08092026/xovi-arm32.tar.gz",
+    "sha256": "c3e6bfedbd9c3dd844dbf661c848b87e4ec97b21554f91fd361eef3665edeb27",
+    "source_commit": "6c709dd8416ddf89034831073d76fb4ee3372905",
+    "source_url": "https://github.com/asivery/rm-xovi-extensions/tree/6c709dd8416ddf89034831073d76fb4ee3372905",
+    "source_archive_url": "https://github.com/asivery/rm-xovi-extensions/archive/6c709dd8416ddf89034831073d76fb4ee3372905.tar.gz",
+    "source_archive_includes_submodules": false,
+    "license": "GPL-3.0",
+    "license_text": "licenses/GPL-3.0.txt",
+    "build_recipe_url": "https://github.com/asivery/rm-xovi-extensions/blob/6c709dd8416ddf89034831073d76fb4ee3372905/.github/workflows/build-release.yml"
+  },
+  "active_components": [
+    {
+      "name": "XOVI loader",
+      "archive_member": "xovi/xovi.so",
+      "sha256": "2878d88da2dcb37dcf5533fa78aeeb5cc933eb8c7e5b9041213a4e135a7fff14",
+      "identity_evidence": "Byte-identical to the official xovi-arm32.so v0.3.3 release asset.",
+      "release_asset_url": "https://github.com/asivery/xovi/releases/download/v0.3.3/xovi-arm32.so",
+      "repository": "https://github.com/asivery/xovi",
+      "tag": "v0.3.3",
+      "source_commit": "0c8d5269b55c851901d4e4a754dc2d7deab40b17",
+      "source_url": "https://github.com/asivery/xovi/tree/0c8d5269b55c851901d4e4a754dc2d7deab40b17",
+      "source_archive_url": "https://github.com/asivery/xovi/archive/0c8d5269b55c851901d4e4a754dc2d7deab40b17.tar.gz",
+      "license": "GPL-3.0",
+      "license_text": "licenses/GPL-3.0.txt",
+      "license_note": "The source at this tag has GPL-3.0, not the LGPL-3.0 text now present on master."
+    },
+    {
+      "name": "qt-resource-rebuilder",
+      "archive_member": "xovi/extensions.d/qt-resource-rebuilder.so",
+      "sha256": "453aafdb56f17c7f457d83c37843c3d3231a5b5cf26fc961d5b96b95a1ec36f6",
+      "repository": "https://github.com/asivery/rm-xovi-extensions",
+      "source_commit": "6c709dd8416ddf89034831073d76fb4ee3372905",
+      "source_url": "https://github.com/asivery/rm-xovi-extensions/tree/6c709dd8416ddf89034831073d76fb4ee3372905/qt-resource-rebuilder",
+      "license": "GPL-3.0",
+      "license_text": "licenses/GPL-3.0.txt",
+      "build_recipe_url": "https://github.com/asivery/rm-xovi-extensions/blob/6c709dd8416ddf89034831073d76fb4ee3372905/qt-resource-rebuilder/Makefile",
+      "statically_incorporated_source": [
+        {
+          "name": "qmldiff",
+          "repository": "https://github.com/asivery/qmldiff",
+          "source_commit": "a38cccc4e0de99c0fc7f8cb8bf963a1c234267b1",
+          "source_url": "https://github.com/asivery/qmldiff/tree/a38cccc4e0de99c0fc7f8cb8bf963a1c234267b1",
+          "source_archive_url": "https://github.com/asivery/qmldiff/archive/a38cccc4e0de99c0fc7f8cb8bf963a1c234267b1.tar.gz",
+          "cargo_lock_url": "https://github.com/asivery/qmldiff/blob/a38cccc4e0de99c0fc7f8cb8bf963a1c234267b1/Cargo.lock",
+          "license": "GPL-3.0",
+          "license_text": "licenses/GPL-3.0.txt"
+        }
+      ],
+      "additional_source_notices": [
+        {
+          "name": "uthash.h",
+          "source_url": "https://raw.githubusercontent.com/asivery/rm-xovi-extensions/6c709dd8416ddf89034831073d76fb4ee3372905/qt-resource-rebuilder/src/uthash.h",
+          "license": "BSD-1-Clause",
+          "license_text": "licenses/xovi-uthash-BSD-1-Clause.txt"
+        },
+        {
+          "name": "utlist.h",
+          "source_url": "https://raw.githubusercontent.com/asivery/rm-xovi-extensions/6c709dd8416ddf89034831073d76fb4ee3372905/qt-resource-rebuilder/src/utlist.h",
+          "license": "BSD-1-Clause",
+          "license_text": "licenses/xovi-utlist-BSD-1-Clause.txt"
+        }
+      ]
+    }
+  ],
+  "provenance_limits": [
+    "The upstream build workflow clones XOVI master for xovigen without recording its commit in the release metadata.",
+    "The upstream build uses eeems/remarkable-toolchain:latest-rm2 rather than an immutable image digest.",
+    "Rust toolchain installation is not version-pinned; cargo build is run without --locked although the qmldiff source includes Cargo.lock.",
+    "The pinned archive also contains inactive optional extensions. This project does not activate them; their complete native dependency graph is not audited here.",
+    "Source snapshot identification and component hashing do not establish a fully reproducible corresponding-source build of every byte in the upstream archive."
+  ],
+  "distribution_policy": {
+    "project_release_embeds_archive": false,
+    "installer_downloads_from_upstream": true,
+    "upstream_license_replaced_by_project_mit": false,
+    "existing_installations": "Keep the license and provenance of the actual existing XOVI version; this pinned record does not identify arbitrary installed binaries."
+  }
+}

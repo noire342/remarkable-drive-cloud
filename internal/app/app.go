@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -83,9 +84,10 @@ func (app *App) Start() {
 	}
 
 	app.srv = &http.Server{
-		Addr:      ":" + app.cfg.Port,
-		Handler:   app.router,
-		TLSConfig: tlsConfig,
+		Addr:              app.cfg.BindHost + ":" + app.cfg.Port,
+		ReadHeaderTimeout: 10 * time.Second,
+		Handler:           app.router,
+		TLSConfig:         tlsConfig,
 	}
 
 	if tlsConfig != nil {
@@ -116,15 +118,20 @@ func (app *App) Stop() {
 	}
 }
 
-
 // NewApp constructs an app
-func NewApp(cfg *config.Config) App {
+func NewApp(cfg *config.Config) App { return NewAppWithBackend(cfg, nil) }
+
+func NewAppWithBackend(cfg *config.Config, backend interface {
+	StoreBlob(string, string, io.Reader, int64) (int64, error)
+	LoadBlob(string, string) (io.ReadCloser, int64, int64, string, error)
+}) App {
 	debugMode := log.GetLevel() >= log.DebugLevel
 	if !debugMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	fsStorage := fs.NewStorage(cfg)
+	fsStorage.BlobBackend = backend
 	usrs, err := fsStorage.GetUsers()
 
 	if err != nil {
@@ -140,6 +147,10 @@ func NewApp(cfg *config.Config) App {
 	pcStore := passcodestore.NewInMemory()
 	codeConnector := NewCodeConnector()
 	router := gin.Default()
+	if cfg.TabletOnly {
+		router = gin.New()
+		router.Use(gin.Recovery())
+	}
 
 	// corsConfig := cors.DefaultConfig()
 
@@ -155,7 +166,7 @@ func NewApp(cfg *config.Config) App {
 	// Register the middleware
 	// router.Use(cors.New(corsConfig))
 
-	if debugMode {
+	if debugMode && !cfg.TabletOnly {
 		router.Use(requestLoggerMiddleware())
 	}
 
@@ -176,12 +187,14 @@ func NewApp(cfg *config.Config) App {
 
 	roomMgr := screenshare.NewRoomManager()
 	app.roomManager = roomMgr
-	app.mqttBroker = mqtt.NewBroker(cfg.MQTTPort, nil, app.validateMQTTToken, cfg.ICEServers, roomMgr, ntfHub)
+	app.mqttBroker = mqtt.NewBroker(cfg.BindHost+":"+cfg.MQTTPort, nil, app.validateMQTTToken, cfg.ICEServers, roomMgr, ntfHub)
 
 	app.registerRoutes(router)
 
-	uiApp := ui.New(cfg, fsStorage, codeConnector, ntfHub, pcStore, fsStorage, fsStorage, roomMgr, app.mqttBroker)
-	uiApp.RegisterRoutes(router)
+	if !cfg.TabletOnly {
+		uiApp := ui.New(cfg, fsStorage, codeConnector, ntfHub, pcStore, fsStorage, fsStorage, roomMgr, app.mqttBroker)
+		uiApp.RegisterRoutes(router)
+	}
 
 	storageapp := fs.NewApp(cfg, fsStorage)
 	storageapp.RegisterRoutes(router)
@@ -217,3 +230,7 @@ func (app *App) validateMQTTToken(token string) (string, error) {
 
 	return "", fmt.Errorf("invalid token")
 }
+
+func (app *App) Handler() http.Handler               { return app.router }
+func (app *App) PairCode(uid string) (string, error) { return app.codeConnector.NewCode(uid) }
+func (app *App) NotifySync(uid string)               { app.hub.NotifySync(uid, "drive-cloud") }

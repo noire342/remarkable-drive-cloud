@@ -1,0 +1,24 @@
+[Unit]
+Description=Google Drive document cloud for reMarkable
+After=network.target home.mount
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=simple
+UMask=0077
+ExecStartPre=/bin/sh /home/root/drive-cloud/device/check-firmware.sh
+ExecStart=/home/root/drive-cloud/bin/drive-cloud serve --base /home/root/drive-cloud
+Restart=on-failure
+RestartSec=20
+Nice=19
+IOSchedulingClass=idle
+Environment=HOME=/home/root
+Environment=GOMEMLIMIT=96MiB
+Environment=GOMAXPROCS=1
+Environment=LOGLEVEL=warn
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

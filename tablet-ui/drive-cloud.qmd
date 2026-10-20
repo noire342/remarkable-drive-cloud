@@ -1,0 +1,32 @@
+; SPDX-License-Identifier: AGPL-3.0-only
+; Original selectors for the supported firmware. No Xochitl resources included.
+VERSION 3.27.3.0
+
+AFFECT [[2328484894988065446]]
+    TRAVERSE ?#[[6504254477]]
+        LOCATE AFTER ALL
+        INSERT {
+            Loader {
+                visible: false
+                source: "file:///home/root/drive-cloud/ui/CloudPage.qml"
+                onLoaded: item.probe = true
+            }
+        }
+    END TRAVERSE
+END AFFECT
+
+AFFECT [[12599552112012170435]]
+    TRAVERSE ?#[[7713561876955258]]
+        LOCATE AFTER ALL
+        INSERT {
+            Loader {
+                id: driveCloudPage
+                anchors.fill: payloadLoader
+                active: settings._selectedIndex === SettingsPage.Cloud
+                visible: active
+                source: "file:///home/root/drive-cloud/ui/CloudPage.qml"
+                Component.onCompleted: payloadLoader.visible = Qt.binding(function() { return !driveCloudPage.active; })
+            }
+        }
+    END TRAVERSE
+END AFFECT

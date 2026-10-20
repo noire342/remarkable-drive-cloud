@@ -1,0 +1,59 @@
+name: Development CI
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.2'
+      - run: go test -tags cloud ./...
+      - run: go vet -tags cloud ./...
+      - run: python scripts/collect_licenses.py --check
+      - run: python -m unittest discover -s tests -v
+      - name: Race detector
+        if: runner.os == 'Linux'
+        run: go test -race -tags cloud ./internal/drivecloud ./internal/deviceops
+      - name: Shell syntax
+        if: runner.os == 'Linux'
+        run: for script in install.sh device/*.sh; do sh -n "$script"; done
+  arm-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.27.2'
+      - run: python scripts/build_development.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: development-builds-not-a-release
+          path: |
+            build/remarkable-drive-cloud-linux-armv7.tar.gz
+            build/drive-cloud-setup-*
+            build/SHA256SUMS
+  qml-parser:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Pinned resource parser
+        run: |
+          git clone https://github.com/asivery/qmldiff.git "$RUNNER_TEMP/qmldiff"
+          git -C "$RUNNER_TEMP/qmldiff" checkout a38cccc4e0de99c0fc7f8cb8bf963a1c234267b1
+          rustup toolchain install 1.85.1 --profile minimal
+          cargo +1.85.1 build --locked --manifest-path "$RUNNER_TEMP/qmldiff/Cargo.toml" --bin qmldiff
+      - name: QML on synthetic resources
+        env:
+          QMLDIFF_BIN: ${{ runner.temp }}/qmldiff/target/debug/qmldiff
+        run: python -m unittest discover -s tests -v

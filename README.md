@@ -1,105 +1,64 @@
-# rmfakecloud
+# reMarkable Drive Cloud
 
-This is a replacement of the cloud, in case you want to sync/backup your files and have full control of the hosting environment.
+An experimental, autonomous Google Drive document cloud for **reMarkable 2,
+firmware 3.27.3.0**. Based on a pinned fork of rmfakecloud; AGPL-3.0.
 
-See the [project documentation](https://ddvk.github.io/rmfakecloud/) for setup and configuration.
+**Development only. No stable release or production migration is available yet.**
+The native `rm-sync` client talks to a local bridge. A committed native root is
+acknowledged only after its complete immutable snapshot has reached Drive.
+Xochitl remains responsible for applying document changes to its live library.
 
-## Supported Devices
+The intended final configuration disconnects the official reMarkable document
+cloud and replaces the native **Settings → Cloud** page with Google Drive.
+The installer currently installs the bridge and page in preparation mode. It
+does not yet perform a production account cutover. That cutover requires physical
+protocol/restore tests, a complete old-cloud inventory and verified Drive backup.
+Do not delete your existing account or copy files into an active Xochitl library.
 
-| Device               | Is Supported |
-| -------------------- | ------------ |
-| reMarkable 1         | ✅           |
-| reMarkable 2         | ✅           |
-| reMarkable Paper Pro | ✅           |
-| reMarkable Paper Pro Move | ✅           |
-| reMarkable Paper Pure| ✅           |
+## Implemented development components
 
-The current release of rmfakecloud supports file synchronization up to **reMarkable software 3.27.1**. Newer releases have not been tested yet.
+- Persistent, serialized native object staging; verified immutable Drive snapshots;
+  stable Drive IDs, resumable uploads and retry after lost acknowledgements.
+- Drive `reMarkable/Libreria`, `Da importare`, `_Archivio`; native UUID mappings,
+  folder/name/trash propagation, import receipts, conflict copies and separate
+  imports of externally edited PDF content.
+- Raw native metadata preservation, both legacy structural index hashes and
+  current schema-4 byte hashes, native PDF rendering, history and copy restore.
+- Local authenticated control API, desktop OAuth with PKCE, private credentials.
+- Native Cloud page using XOVI; bounded installer validation with UI rollback.
+  Quick Share and other extensions remain independent.
 
-See the [documentation](https://ddvk.github.io/rmfakecloud/remarkable/setup/) for how to setup your device to use rmfakecloud.
+Read [current validation and remaining gates](docs/VALIDATION.md) before use.
+Rendering or conversion by UniPDF is absent. OCR, handwriting search, AI, email,
+official companion apps and multi-tablet synchronization are outside this version.
 
+## Build and prepare
 
-## Feature Parity With Official Cloud
+Requires Go 1.27.2, Python 3 and an OpenSSH client on your computer:
 
-| Features | Supported | Notes |
-| -------- | --------- | ----- |
-| File synchronization (1.0) | ✅ |  |
-| File synchronization (1.5, 2, 3, 4) | ✅ |  |
-| [Send document by email](https://ddvk.github.io/rmfakecloud/install/configuration/#email-settings) | ✅ |  |
-| [Handwriting recognition](https://ddvk.github.io/rmfakecloud/install/configuration/#handwriting-recognition) | ✅ |  |
-| Handwriting search | ❌ |  |
-| [Screen sharing](https://ddvk.github.io/rmfakecloud/install/configuration/#screen-sharing) | ✅ |  |
-| [Storage integrations](https://ddvk.github.io/rmfakecloud/usage/integrations/) | ✅ |  |
-| Integration with Dropbox | 🟡 | [WIP](https://github.com/ddvk/rmfakecloud/blob/master/internal/integrations/dropbox.go) |
-| Integration with Google Drive | 🟡 | [WIP](https://github.com/ddvk/rmfakecloud/pull/241) |
-| Integration with OneDrive | ❌ |  |
-| Integration with WebDAV | ✅ | Nextcloud, Owncloud, ... |
-| Integration with FTP | ✅ |  |
-| Messaging integrations | ✅ |  |
-| [Messaging integration through webhook](https://ddvk.github.io/rmfakecloud/usage/integrations/#messaging-webhook) | ✅ |  |
-| Calendar integration | ✅ | ICS currently supported
-| Messaging integration to Slack | 🟡 | Not directly, use a webhook with zapier/make/n8n |
-| Archive document to cloud | 🟡 | It works but the information is not saved |
-| [Passcode (PIN) reset](https://ddvk.github.io/rmfakecloud/usage/passcode-reset/) | ✅ | reMarkable 1 / reMarkable 2 only |
-| Document rendering in web interface | ❌ | [WIP](https://github.com/ddvk/rmfakecloud/issues/255) |
+```sh
+go test -tags cloud ./...
+go vet -tags cloud ./...
+python scripts/build_development.py
+```
 
+On Windows, run `./install.ps1 -Tablet IP_TABLET`; on Linux/macOS,
+`sh install.sh IP_TABLET`, from the built checkout. The wrappers select the host
+helper, verify its checksum and transfer the verified ARMv7 bundle over SSH.
+There is intentionally no public curl-to-install command or stable download yet.
+Keep the tablet unlocked while the firmware QML table is generated.
 
-## Breaking Changes
+Configure your **personal Desktop OAuth client** using
+[the Italian guide](docs/GOOGLE_SETUP.it.md). Authorization and installation do
+not by themselves migrate the cloud. The program's broad Drive permission is
+required to detect files users add directly to the inbox; application operations
+are restricted to the dedicated vault IDs. Credentials and backups never belong
+in this repository.
 
-- For SW >= 3.15 `STORAGE_URL` should not be set (or only https://some.ho.st without a port should be used)
-- after v0.0.3 the files in `/data` will have to be manually moved to the user that will be created
-- with v0.0.5 the new diff sync15 is added as an option, in order to use it modify the user with `setuser -u user -s`
-  or modify the profile and add `sync15:true`
-  a full resync will be needed (the tablet will do it), the old files are kept as they were and everything is put in a new directory
+## Source and licenses
 
-## Development
-
-run `./dev.sh` which should start the UI and backend
-
-### Caveats/ WARNING
-
-- (applies when you don't have security, version <= 0.0.3) connecting to the api will delete all your files, unless you mark them as not synced `synced:false` prior to syncing (advisable just to disconnect, reconnect the cloud)
-- **if you delete files from the users directory** on the host, on the next sync those will be deleted from the device
-- if you delete the whole user directory (by mistake) on the host, you should disconnect the cloud from the device and reconnect it
-- after an official update, the proxy and hosts file changes will be removed, the tablet will automatically disconnect from the cloud (by sending an invalid token to the official cloud and getting 403)
-  just reinstall the proxy and reconnect to your cloud
-
-## Troubleshooting
-- check the connectivity between the tablet and the host:
-    ping my.remarkable.com (should be localhost)
-    ping local.remarkable.com (should be localhost)
-    ping thehostpc
-    wget -qO- http://host:3000 (or relevant ports, should get Working...)
-    wget -qO- https://local.appspot.com (should get Working...)
-
-- check that the proxy is running and certs are installed:
-    ```
-    echo Q | openssl s_client -connect localhost:443  -verify_hostname local.appspot.com -CAfile /etc/ssl/certs/ca-certificates.crt 2>&1 | grep Verify
-    ```
-    You should see: *Verify return code: 0 (ok)*
-
-- if both (host and tablet) are on a wifi make sure "Client Isolation" is not activated on the AP
-
-- check if the proxy is configured correctly
-    ```
-    systemctl status proxy
-
-    #or
-
-    journalctl -u proxy
-    ```
-- check whether the CA cert was installed correctly
-    when doing `update-ca-certificates` there should have been `1 added`
-    check the logs
-
-- check xochitls's logs, stop the service, start manually with more logging
-    ```
-    systemctl stop xochitl
-    QT_LOGGING_RULES=rm.network.*=true xochitl | grep -A3 QUrl
-
-    ```
-    if you see *SSL Handshake failed* then something is wrong with the certs
-- check sync logs
-   ```
-   journalctl -u rm-sync
-   ```
+Upstream base: `ddvk/rmfakecloud@3c6de006bdc465bdc0aa14b4de8fac78b5096ee6`.
+The Go module path remains upstream's to preserve fork imports; this does not
+imply upstream authorship of the Drive integration. See
+[third-party notices](THIRD_PARTY_NOTICES.md) and [AGPL-3.0](LICENSE).
+Firmware, user documents, OAuth credentials and XOVI binaries are not shipped.

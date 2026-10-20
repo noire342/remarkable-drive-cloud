@@ -24,3 +24,20 @@ assets_vfsdata.go
 
 # mkdoc build
 site/
+
+# Device credentials, user documents and build outputs
+.private/
+.tools/
+state/
+build/
+*.pem
+*.key
+*.credentials.json
+*.token.json
+client_secret*.json
+.env*
+
+__pycache__/
+credentials.json
+control-token
+identity-key

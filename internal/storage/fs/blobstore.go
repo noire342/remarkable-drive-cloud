@@ -16,8 +16,8 @@ import (
 	"github.com/danjacques/gofslock/fslock"
 	"github.com/ddvk/rmfakecloud/internal/common"
 	"github.com/ddvk/rmfakecloud/internal/config"
+	"github.com/ddvk/rmfakecloud/internal/nativeexport"
 	"github.com/ddvk/rmfakecloud/internal/storage"
-	"github.com/ddvk/rmfakecloud/internal/storage/exporter"
 	"github.com/ddvk/rmfakecloud/internal/storage/models"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -118,31 +118,7 @@ func (fs *FileSystemStorage) ExportRmDoc(uid, docid string) (io.ReadCloser, erro
 
 // Export exports a document
 func (fs *FileSystemStorage) Export(uid, docid string) (r io.ReadCloser, err error) {
-	tree, err := fs.GetCachedTree(uid)
-	if err != nil {
-		return nil, err
-	}
-	doc, err := tree.FindDoc(docid)
-	if err != nil {
-		return nil, err
-	}
-	ls := fs.BlobStorage(uid)
-
-	archive, err := models.ArchiveFromHashDoc(doc, ls)
-	if err != nil {
-		return nil, err
-	}
-	reader, writer := io.Pipe()
-	go func() {
-		err = exporter.RenderRmapi(archive, writer)
-		if err != nil {
-			log.Error(err)
-			writer.Close()
-			return
-		}
-		writer.Close()
-	}()
-	return reader, err
+	return (nativeexport.Client{}).Export(docid, "pdf")
 }
 
 // UpdateBlobDocument updates metadata
@@ -612,6 +588,13 @@ func createMetadataFile(metadata models.MetadataFile) (r io.Reader, filehash str
 
 // GetBlobURL return a url for a file to store
 func (fs *FileSystemStorage) GetBlobURL(uid, blobid string, write bool) (docurl string, exp time.Time, err error) {
+	if fs.BlobBackend != nil && !write {
+		r, _, _, _, err := fs.BlobBackend.LoadBlob(uid, blobid)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		r.Close()
+	}
 	uploadRL := fs.Cfg.StorageURL
 	exp = time.Now().Add(time.Minute * config.ReadStorageExpirationInMinutes)
 	strExp := strconv.FormatInt(exp.Unix(), 10)
@@ -641,6 +624,9 @@ func (fs *FileSystemStorage) GetBlobURL(uid, blobid string, write bool) (docurl 
 
 // LoadBlob Opens a blob by id
 func (fs *FileSystemStorage) LoadBlob(uid, blobid string) (reader io.ReadCloser, gen int64, size int64, hash string, err error) {
+	if fs.BlobBackend != nil {
+		return fs.BlobBackend.LoadBlob(uid, blobid)
+	}
 	generation := int64(0)
 	blobPath := path.Join(fs.getUserBlobPath(uid), common.Sanitize(blobid))
 	log.Debugln("Fullpath:", blobPath)
@@ -686,6 +672,9 @@ func (fs *FileSystemStorage) LoadBlob(uid, blobid string) (reader io.ReadCloser,
 
 // StoreBlob stores a document
 func (fs *FileSystemStorage) StoreBlob(uid, id string, stream io.Reader, lastGen int64) (generation int64, err error) {
+	if fs.BlobBackend != nil {
+		return fs.BlobBackend.StoreBlob(uid, id, stream, lastGen)
+	}
 	generation = 1
 
 	reader := stream

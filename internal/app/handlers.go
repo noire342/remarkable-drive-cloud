@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/png"
@@ -85,7 +86,7 @@ func (app *App) newDevice(c *gin.Context) {
 	}
 
 	code := strings.ToLower(tokenRequest.Code)
-	log.Info("Got code ", code)
+	log.Debug("Pairing request received")
 
 	uid, err := app.codeConnector.ConsumeCode(code)
 	if err != nil {
@@ -93,7 +94,7 @@ func (app *App) newDevice(c *gin.Context) {
 		c.AbortWithStatus(http.StatusBadRequest)
 		return
 	}
-	log.Info("Request: ", tokenRequest, "Token for:", uid)
+	log.Debug("Device pairing succeeded")
 
 	// generate the JWT token
 	claims := &DeviceClaims{
@@ -148,6 +149,9 @@ func (app *App) newUserToken(c *gin.Context) {
 	}
 
 	scopes := []string{"intgr", "screenshare", "docedit"}
+	if app.cfg.TabletOnly {
+		scopes = nil
+	}
 
 	if app.cfg.HWRApplicationKey != "" && app.cfg.HWRHmac != "" {
 		scopes = append(scopes, "hwcmail:-1", "hwc")
@@ -751,7 +755,7 @@ func (app *App) syncUpdateRootV3(c *gin.Context) {
 
 	uid := userID(c)
 	newgeneration, err := app.blobStorer.StoreBlob(uid, RootHash, bytes.NewBufferString(rootv3.Hash), rootv3.Generation)
-	if err == fs.ErrorWrongGeneration {
+	if errors.Is(err, fs.ErrorWrongGeneration) {
 		c.AbortWithStatus(http.StatusPreconditionFailed)
 		return
 	}
@@ -776,6 +780,13 @@ func (app *App) syncUpdateRootV3(c *gin.Context) {
 }
 
 const SchemaVersion = 3
+
+func (app *App) nativeSchemaVersion() int64 {
+	if app.cfg.HashSchemaVersion == "4" {
+		return 4
+	}
+	return SchemaVersion
+}
 
 const RmTokenTtlHeader = "Rm-Token-Ttl-Hint"
 const RmFileHeader = "rm-filename"
@@ -813,6 +824,7 @@ func (app *App) syncGetRootV3(c *gin.Context) {
 		return
 	}
 
+	defer reader.Close()
 	roothash, err := io.ReadAll(reader)
 	if err != nil {
 		log.Error(err)
@@ -832,7 +844,7 @@ func (app *App) syncGetRootV4(c *gin.Context) {
 	if err == fs.ErrorNotFound {
 		log.Warn("No root file found, assuming this is a new account")
 		crcJSON(c, http.StatusOK, messages.SyncRootV4Response{
-			SchemaVersion: SchemaVersion,
+			SchemaVersion: app.nativeSchemaVersion(),
 		})
 		return
 	}
@@ -843,6 +855,7 @@ func (app *App) syncGetRootV4(c *gin.Context) {
 		return
 	}
 
+	defer reader.Close()
 	roothash, err := io.ReadAll(reader)
 	if err != nil {
 		log.Error(err)
@@ -852,7 +865,7 @@ func (app *App) syncGetRootV4(c *gin.Context) {
 	crcJSON(c, http.StatusOK, messages.SyncRootV4Response{
 		Generation:    generation,
 		Hash:          string(roothash),
-		SchemaVersion: SchemaVersion,
+		SchemaVersion: app.nativeSchemaVersion(),
 	})
 }
 
