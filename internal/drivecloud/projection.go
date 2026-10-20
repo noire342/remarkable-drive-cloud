@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -56,80 +57,65 @@ func (e *Engine) libraryAncestor(ctx context.Context, id string) bool {
 	return false
 }
 
-func (e *Engine) consumeChanges(ctx context.Context) error {
-	if e.state.Cursor == "" {
-		return ErrSuspended
+func (e *Engine) reconcileLibrary(ctx context.Context) error {
+	// Poll only our own tree. The account-wide change feed can contain millions
+	// of unrelated deletions and must never delay a native commit or PDF export.
+	if err := e.verifyArchiveEvents(ctx); err != nil {
+		return err
 	}
-	cursor := e.state.Cursor
-	var all []Change
-	next := ""
-	for {
-		page, err := e.remote.Changes(ctx, cursor)
+	queue := []string{e.state.Layout.Library}
+	seen := map[string]bool{}
+	for len(queue) > 0 {
+		parentID := queue[0]
+		queue = queue[1:]
+		if seen[parentID] {
+			continue
+		}
+		seen[parentID] = true
+		files, err := e.remote.List(ctx, "'"+parentID+"' in parents and trashed = false and mimeType = '"+FolderMIME+"'")
 		if err != nil {
 			return err
 		}
-		all = append(all, page.Changes...)
-		if page.Next == "" {
-			next = page.Start
-			break
-		}
-		cursor = page.Next
-	}
-	// Adopt new folders before moves into them, irrespective of event ordering.
-	for pass := 0; pass < 100; pass++ {
-		progress := false
-		for _, change := range all {
-			f := change.File
-			if f == nil || f.Trashed || f.MIME != FolderMIME {
+		for _, file := range files {
+			if file.Trashed || file.MIME != FolderMIME || !hasParent(file, parentID) {
 				continue
 			}
-			if _, ok := e.nativeParent(f.ID); ok {
-				continue
-			}
-			parent, ok := e.nativeParent(firstParent(*f))
-			if !ok {
-				continue
-			}
-			if err := e.newFolder(ctx, *f, parent); err != nil {
-				return err
-			}
-			progress = true
-		}
-		if !progress {
-			break
-		}
-	}
-	for _, change := range all {
-		// Immutable archive changes are integrity errors, never document deletions.
-		for _, obj := range e.state.Current.Objects {
-			if obj.ID == change.FileID {
-				f := change.File
-				if change.Removed || f == nil || f.Trashed || f.MD5 != obj.MD5 || !hasParent(*f, e.state.Layout.Objects) {
-					return fmt.Errorf("archive object changed: %w", ErrSuspended)
+			if _, exists := e.nativeParent(file.ID); !exists {
+				parent, ok := e.nativeParent(parentID)
+				if !ok {
+					return ErrSuspended
+				}
+				if err := e.newFolder(ctx, file, parent); err != nil {
+					return err
 				}
 			}
+			queue = append(queue, file.ID)
 		}
-		if change.FileID == e.state.Current.ID && (change.Removed || change.File == nil || change.File.Trashed) {
-			return fmt.Errorf("current snapshot removed: %w", ErrSuspended)
-		}
-		var mappingID string
-		for id, m := range e.state.Mappings {
-			if m.DriveID == change.FileID {
-				mappingID = id
-				break
+	}
+	ids := make([]string, 0, len(e.state.Mappings))
+	for id := range e.state.Mappings {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		mapping := e.state.Mappings[id]
+		file, err := e.remote.Get(ctx, mapping.DriveID)
+		change := Change{FileID: mapping.DriveID}
+		if errors.Is(err, ErrNotFound) {
+			if mapping.NativeHash == "" && mapping.ExportHash == "" {
+				// A reserved ID whose first upload failed is not a deletion.
+				continue
 			}
+			change.Removed = true
+		} else if err != nil {
+			return err
+		} else {
+			change.File = &file
 		}
-		if mappingID == "" {
-			continue
-		}
-		if err := e.applyDriveChange(ctx, mappingID, change); err != nil {
+		if err := e.applyDriveChange(ctx, id, change); err != nil {
 			return err
 		}
 	}
-	if next == "" {
-		return fmt.Errorf("Drive changes response missing cursor")
-	}
-	e.state.Cursor = next
 	return e.save()
 }
 func (e *Engine) applyDriveChange(ctx context.Context, id string, change Change) error {
@@ -322,6 +308,28 @@ func (e *Engine) publishLibrary(ctx context.Context) error {
 	}
 	return nil
 }
+
+// PublishLibrary prepares readable Drive copies without importing the inbox or
+// changing the tablet's cloud account. Existing external changes are reconciled
+// before any derived file is updated.
+func (e *Engine) PublishLibrary(ctx context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if err := e.checkLayout(ctx); err != nil {
+		return err
+	}
+	if err := e.finishPending(ctx); err != nil {
+		return err
+	}
+	if err := e.reconcileLibrary(ctx); err != nil {
+		return err
+	}
+	if err := e.publishLibrary(ctx); err != nil {
+		return err
+	}
+	e.state.LastError = ""
+	return e.save()
+}
 func (e *Engine) publishOne(ctx context.Context, doc *Document, parent string) error {
 	m, exists := e.state.Mappings[doc.ID]
 	if !exists {
@@ -377,6 +385,11 @@ func (e *Engine) publishOne(ctx context.Context, doc *Document, parent string) e
 		if e.exporter == nil {
 			return fmt.Errorf("native PDF exporter unavailable")
 		}
+		if e.verifyExport != nil {
+			if err := e.verifyExport(doc); err != nil {
+				return err
+			}
+		}
 		r, err := e.exporter(doc.ID, "pdf")
 		if err != nil {
 			return err
@@ -392,6 +405,12 @@ func (e *Engine) publishOne(ctx context.Context, doc *Document, parent string) e
 		r.Close()
 		if err != nil {
 			return err
+		}
+		if e.verifyExport != nil {
+			if err := e.verifyExport(doc); err != nil {
+				os.Remove(path)
+				return err
+			}
 		}
 		md5sum, _, err := fileMD5(path)
 		if err != nil {

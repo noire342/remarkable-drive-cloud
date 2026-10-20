@@ -58,6 +58,7 @@ case "$1" in
  is-enabled) echo disabled;exit 1;;
  is-active) if [ "$2" = --quiet ];then exit 0;fi;echo inactive;exit 3;;
  show) case "$*" in
+  *'ExecStart --value') cat "$TEST_ROOT/etc/systemd/system/xochitl.service.d/70-drive-cloud.conf";;
   *'Restart --value') if find "$TEST_ROOT/run" -name 'zzzz-remarkable-drive-cloud-validation-*.conf' | grep -q .;then echo no;else echo on-failure;fi;;
   *'ActiveState --value') if [ -f "$TEST_ROOT/crashed" ];then echo failed;else echo active;fi;;esac;;
  restart) if [ "$2" = xochitl ];then
@@ -82,6 +83,17 @@ esac
         (self.payload/'PAYLOAD.sha256').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.relative_to(self.payload).as_posix()+'\n' for p in files))
 
     def run_install(self,**flags):return subprocess.run(['sh',str(self.payload/'device/install-device.sh')],env=dict(self.env,**flags),capture_output=True,text=True,timeout=20)
+
+    def test_missing_system_argument_rolls_back_before_ui_restart(self):
+        drop=self.payload/'device/70-drive-cloud.conf'
+        drop.write_text(drop.read_text().replace(' --system',''))
+        self.checksums()
+        result=self.run_install()
+        self.assertNotEqual(result.returncode,0,result.stdout+result.stderr)
+        self.assertIn('Native system lifecycle argument missing',result.stderr)
+        self.assertNotIn('restart xochitl',(self.root/'systemctl.log').read_text())
+        self.assertFalse((self.qrr/'drive-cloud.qmd').exists())
+        self.assert_owner_data()
 
     def assert_owner_data(self):
         self.assertIn('UserToken=original-cloud-fixture',self.conf.read_text())

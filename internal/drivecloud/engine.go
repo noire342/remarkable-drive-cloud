@@ -27,18 +27,20 @@ import (
 )
 
 type Engine struct {
-	lock      fslock.Handle
-	closeOnce sync.Once
-	status    atomic.Value
-	mu        sync.Mutex
-	dir       string
-	objects   string
-	remote    Remote
-	state     State
-	wake      chan struct{}
-	notify    func()
-	exporter  func(string, string) (io.ReadCloser, error)
-	now       func() time.Time
+	lock         fslock.Handle
+	closeOnce    sync.Once
+	status       atomic.Value
+	phase        string
+	mu           sync.Mutex
+	dir          string
+	objects      string
+	remote       Remote
+	state        State
+	wake         chan struct{}
+	notify       func()
+	exporter     func(string, string) (io.ReadCloser, error)
+	verifyExport func(*Document) error
+	now          func() time.Time
 }
 
 func NewEngine(dir, objects, user string, remote Remote) (*Engine, error) {
@@ -92,6 +94,11 @@ func (e *Engine) SetExporter(exporter func(string, string) (io.ReadCloser, error
 	defer e.mu.Unlock()
 	e.exporter = exporter
 }
+func (e *Engine) SetExportVerifier(verify func(*Document) error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.verifyExport = verify
+}
 func (e *Engine) SetNotifier(notify func()) { e.mu.Lock(); defer e.mu.Unlock(); e.notify = notify }
 func (e *Engine) Wake() {
 	select {
@@ -112,16 +119,17 @@ func (e *Engine) Status() Status {
 	return Status{}
 }
 func (e *Engine) statusUnlocked() Status {
-	pending := 0
+	snapshots, exports := 0, 0
 	if e.state.Pending != nil {
-		pending++
+		snapshots++
 	}
 	for id, hash := range e.state.Current.Documents {
-		if e.state.Mappings[id].ExportHash != hash {
-			pending++
+		mapping := e.state.Mappings[id]
+		if mapping.ExportHash != hash && !(mapping.Trashed && mapping.NativeHash == hash) {
+			exports++
 		}
 	}
-	return Status{Active: e.state.Active, Linked: e.remote != nil, Ready: e.state.Initialized, Paused: e.state.Paused, Account: e.state.Account, Generation: e.state.Current.Generation, Pending: pending, LastSync: e.state.LastSync, LastError: e.state.LastError, Quota: e.state.Quota}
+	return Status{Phase: e.phase, Active: e.state.Active, Linked: e.remote != nil, Ready: e.state.Initialized, Paused: e.state.Paused, Account: e.state.Account, Generation: e.state.Current.Generation, Pending: snapshots + exports, PendingSnapshots: snapshots, PendingExports: exports, LastSync: e.state.LastSync, LastError: e.state.LastError, Quota: e.state.Quota}
 }
 func (e *Engine) Pause(paused bool) error {
 	e.mu.Lock()
@@ -132,7 +140,12 @@ func (e *Engine) Pause(paused bool) error {
 func (e *Engine) Bootstrap(ctx context.Context) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.bootstrap(ctx)
+	err := e.bootstrap(ctx)
+	if err != nil {
+		e.state.LastError = err.Error()
+		e.save()
+	}
+	return err
 }
 func (e *Engine) bootstrap(ctx context.Context) error {
 	if e.state.Initialized {
@@ -486,15 +499,35 @@ func (e *Engine) Run(ctx context.Context) {
 		case <-e.wake:
 		case <-timer.C:
 		}
-		cycle, cancel := context.WithTimeout(ctx, 4*time.Minute)
-		err := e.Cycle(cycle)
-		cancel()
-		if err != nil {
-			e.mu.Lock()
-			e.state.LastError = err.Error()
-			e.save()
-			e.mu.Unlock()
+		status := e.Status()
+		if status.Paused || (!status.Active && status.PendingExports == 0) {
+			continue
 		}
+		e.mu.Lock()
+		e.phase = "exports"
+		e.state.LastError = ""
+		if status.Active {
+			e.phase = "sync"
+		}
+		e.status.Store(e.statusUnlocked())
+		e.mu.Unlock()
+		cycle, cancel := context.WithTimeout(ctx, 4*time.Minute)
+		var err error
+		if status.Active {
+			err = e.Cycle(cycle)
+		} else {
+			err = e.PublishLibrary(cycle)
+		}
+		cancel()
+		e.mu.Lock()
+		e.phase = ""
+		if err != nil {
+			e.state.LastError = err.Error()
+		} else {
+			e.state.LastError = ""
+		}
+		e.save()
+		e.mu.Unlock()
 	}
 }
 func (e *Engine) Cycle(ctx context.Context) error {
@@ -506,7 +539,7 @@ func (e *Engine) Cycle(ctx context.Context) error {
 	if err := e.finishPending(ctx); err != nil {
 		return err
 	}
-	if err := e.consumeChanges(ctx); err != nil {
+	if err := e.reconcileLibrary(ctx); err != nil {
 		return err
 	}
 	if err := e.publishLibrary(ctx); err != nil {
@@ -525,8 +558,8 @@ func (e *Engine) Cycle(ctx context.Context) error {
 	return e.save()
 }
 
-// Native index hashes describe their children; SHA-256 of the actual bytes is
-// stored separately. Google changes are checked before trusting old receipts.
+// Verify only the immutable objects in our own archive. Reading the global
+// changes feed makes unrelated account activity part of every native commit.
 func (e *Engine) verifyArchiveEvents(ctx context.Context) error {
 	if e.state.Current.ID == "" {
 		return nil
@@ -547,24 +580,20 @@ func (e *Engine) verifyArchiveEvents(ctx context.Context) error {
 	for _, obj := range e.state.Current.Objects {
 		ids[obj.ID] = obj
 	}
-	cursor := e.state.Cursor
-	for cursor != "" {
-		page, err := e.remote.Changes(ctx, cursor)
-		if err != nil {
-			return err
-		}
-		for _, change := range page.Changes {
-			if obj, ok := ids[change.FileID]; ok {
-				f := change.File
-				if change.Removed || f == nil || f.Trashed || f.MD5 != obj.MD5 || !hasParent(*f, e.state.Layout.Objects) {
-					return ErrSuspended
-				}
+	files, err := e.remote.List(ctx, "'"+e.state.Layout.Objects+"' in parents and trashed = false")
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if obj, ok := ids[file.ID]; ok {
+			if file.Trashed || file.MD5 != obj.MD5 || !hasParent(file, e.state.Layout.Objects) || file.Properties["vault"] != e.state.Vault {
+				return ErrSuspended
 			}
+			delete(ids, file.ID)
 		}
-		if page.Next == "" {
-			break
-		}
-		cursor = page.Next
+	}
+	if len(ids) != 0 {
+		return fmt.Errorf("archive objects missing: %w", ErrSuspended)
 	}
 	return nil
 }

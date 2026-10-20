@@ -19,11 +19,31 @@ The first production release is gated on **all** physical checks below.
   A reconstructed private backup was parsed again with identical native root and
   all 19 UUIDs. This is a host reconstruction, not a physical tablet restore.
 - ARMv7 tablet and Windows/macOS/Linux amd64/arm64 setup binaries built.
+- Settings > Cloud installed on the exact device and its authenticated readiness
+  checked. The personal Drive credentials were transferred privately over pinned
+  SSH; all 19 archived items were verified again by downloading from the tablet.
+- The shipped rm-sync client restored 19 items (99 native files) into a separate
+  private home, mount namespace and D-Bus. Every native file matched the backup
+  SHA-256. This proves isolated native download compatibility, not production
+  migration or complete bidirectional acceptance.
+- A real preparation-mode uninstall recovered the prior launcher and Quick Share.
+  A missing `--system` in the candidate launcher had prevented the native Restart
+  action from proceeding after the GUI exited. The launcher now preserves that
+  argument, and the installer checks it before any UI restart. A regression test
+  rejects a candidate missing the argument without restarting Xochitl.
+- Account-wide bulk deletion exposed a global change-feed bottleneck. Polling
+  now reads only managed folders, mapped IDs and archive objects. A regression
+  simulates 20,000 unrelated deletions and forbids reading the global feed while
+  publishing, committing and restoring; nested folders and moves still work.
+- The corrected preparation install completed on-device with native `--system`
+  present, no service restart loop, and all 19 preview exports completed. Pending
+  snapshots and preview exports are reported separately; final queue is zero.
 - Pinned QMLDiff parses the Cloud page and applies its Settings patch to synthetic
   resources. Fake-tablet tests cover existing XOVI, successful installation and
   uninstall, crashed UI, missing readiness and firmware rejection.
 
-These backup checks are **not** proof of native synchronization or physical restore.
+These checks are **not** proof of a completed production migration or full
+bidirectional native synchronization.
 
 ## Must pass before migration or a stable release
 
@@ -49,9 +69,8 @@ Active-cloud uninstall is refused until a verified export and reconciliation
 workflow exists; preparation-mode uninstall restores the prior UI.
 Retention selection is implemented, but automatic pruning remains disabled during
 development so that unaccepted migrations cannot delete archive versions.
-Drive change-token expiry currently suspends synchronization and requires repair;
-it never interprets an unavailable remote archive as an empty library.
-PDF export consistency during simultaneous handwriting still requires physical
+PDF export compares the native revision before and after rendering; a concurrent
+edit defers the export. Its behavior during actual handwriting still needs physical
 validation. No production cutover has been performed on the development tablet.
 The personal Google application currently remains in Testing. Its refresh token
 is temporary (Google's seven-day test-app rule); complete production branding and

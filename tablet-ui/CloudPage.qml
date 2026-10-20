@@ -55,6 +55,24 @@ Item {
         if (!value || value.indexOf("0001-") === 0) return "Ancora nessun salvataggio verificato";
         return new Date(value).toLocaleString(Qt.locale("it_IT"), "dd/MM/yyyy HH:mm");
     }
+    function errorLabel(value) {
+        if (!value) return "";
+        if (value.indexOf("userRateLimitExceeded") >= 0 || value.indexOf("rateLimitExceeded") >= 0 || value.indexOf("HTTP 429") >= 0)
+            return "Google Drive limita temporaneamente le richieste. Le operazioni restano in coda e verranno riprovate.";
+        if (value.indexOf("native export unavailable") >= 0)
+            return "L’esportazione dei PDF sul tablet non è ancora disponibile. Riprovo automaticamente.";
+        if (value.indexOf("native document changed") >= 0 || value.indexOf("native export revision unavailable") >= 0)
+            return "Il documento è cambiato dopo l’ultimo salvataggio. La copia PDF attende la versione aggiornata nell’archivio.";
+        if (value.indexOf("storageQuotaExceeded") >= 0)
+            return "Lo spazio disponibile su Google Drive è esaurito. Libera spazio per riprendere.";
+        if (value.indexOf("account not linked") >= 0)
+            return "Occorre ricollegare l’account Google dal programma di installazione sul computer.";
+        if (value.indexOf("archive") >= 0 || value.indexOf("remote file not found") >= 0)
+            return "L’archivio Drive non è disponibile o integro. La sincronizzazione è sospesa: verifica la cartella reMarkable su Drive.";
+        if (value.indexOf("connection interrupted") >= 0)
+            return "Connessione a Google Drive non disponibile. Le operazioni restano in coda.";
+        return "Un’operazione non è riuscita. Le operazioni restano in coda e verranno riprovate.";
+    }
     Component.onCompleted: {
         request("POST", "/v1/ui-ready", {nonce: Config.nonce}, function(status, result) {});
         refresh();
@@ -82,16 +100,17 @@ Item {
                 text: page.cloudState.active ? "Documenti sincronizzati direttamente con Google Drive." : "Migrazione non attiva. Il cloud precedente resta invariato finché backup e ripristino non sono verificati."
             }
             Text {
-                width: parent.width; visible: page.cloudState.linked === true
-                text: "Ultimo salvataggio su Drive: " + page.dateLabel(page.cloudState.last_sync) + "\nOperazioni pendenti: " + (page.cloudState.pending || 0) + (page.cloudState.paused ? "\nSincronizzazione in pausa" : "")
+                width: parent.width; visible: page.connected && page.cloudState.linked === true
+                text: "Ultimo salvataggio dell’archivio: " + page.dateLabel(page.cloudState.last_sync) + "\nSalvataggi dell’archivio in attesa: " + (page.cloudState.pending_snapshots || 0) + "\nCopie PDF e cartelle da aggiornare: " + (page.cloudState.pending_exports || 0) + (page.cloudState.paused ? "\nSincronizzazione in pausa" : "")
                 font.pixelSize: 25; wrapMode: Text.Wrap; color: "black"; textFormat: Text.PlainText
             }
+            Text { width: parent.width; visible: page.connected && !!page.cloudState.phase; text: page.cloudState.phase === "exports" ? "Creazione delle copie su Drive in corso…" : "Sincronizzazione in corso…"; font.pixelSize: 25; wrapMode: Text.Wrap; textFormat: Text.PlainText }
             Text { width: parent.width; visible: !!page.cloudState.quota && !!page.cloudState.quota.limit; text: page.cloudState.quota ? "Spazio Drive: " + (Number(page.cloudState.quota.usage || 0) / 1000000000).toFixed(2) + " GB di " + (Number(page.cloudState.quota.limit || 0) / 1000000000).toFixed(2) + " GB" : ""; font.pixelSize: 25; wrapMode: Text.Wrap; textFormat: Text.PlainText }
-            CloudButton { text: "Sincronizza ora"; enabled: page.connected && page.cloudState.ready && page.cloudState.active && !page.busy; onClicked: page.action("/v1/sync", {}) }
-            CloudButton { text: page.cloudState.paused ? "Riprendi sincronizzazione" : "Metti in pausa"; enabled: page.connected && page.cloudState.ready && !page.busy; onClicked: page.action("/v1/pause", {paused: !page.cloudState.paused}) }
-            CloudButton { text: "Cronologia e ripristino"; enabled: page.connected && page.cloudState.ready && !page.busy; onClicked: page.showHistory() }
+            CloudButton { text: page.cloudState.active ? "Sincronizza ora" : "Aggiorna copie su Drive"; enabled: page.connected && !!page.cloudState.ready && !page.busy; onClicked: page.action("/v1/sync", {}) }
+            CloudButton { text: page.cloudState.paused ? "Riprendi sincronizzazione" : "Metti in pausa"; enabled: page.connected && !!page.cloudState.ready && !page.busy; onClicked: page.action("/v1/pause", {paused: !page.cloudState.paused}) }
+            CloudButton { text: "Cronologia e ripristino"; enabled: page.connected && !!page.cloudState.ready && !page.busy; onClicked: page.showHistory() }
             Text { width: parent.width; visible: !!page.message; text: page.message; font.pixelSize: 25; wrapMode: Text.Wrap; color: "black"; textFormat: Text.PlainText }
-            Text { width: parent.width; visible: !!page.cloudState.last_error; text: page.cloudState.last_error || ""; font.pixelSize: 25; wrapMode: Text.Wrap; color: "black"; textFormat: Text.PlainText }
+            Text { width: parent.width; visible: !!page.cloudState.last_error && !page.cloudState.phase; text: page.errorLabel(page.cloudState.last_error); font.pixelSize: 25; wrapMode: Text.Wrap; color: "black"; textFormat: Text.PlainText }
             Text { width: parent.width; text: "Codice sorgente e licenza AGPL-3.0:\ngithub.com/noire342/remarkable-drive-cloud"; font.pixelSize: 22; wrapMode: Text.Wrap; color: "#555555"; textFormat: Text.PlainText }
             Repeater {
                 model: page.history

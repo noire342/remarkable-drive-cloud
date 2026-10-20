@@ -119,14 +119,17 @@ type State struct {
 	Quota       Quota              `json:"quota"`
 }
 type Status struct {
-	Active     bool      `json:"active"`
-	Linked     bool      `json:"linked"`
-	Ready      bool      `json:"ready"`
-	Paused     bool      `json:"paused"`
-	Account    string    `json:"account"`
-	Generation int64     `json:"generation"`
-	Pending    int       `json:"pending"`
-	LastSync   time.Time `json:"last_sync"`
-	LastError  string    `json:"last_error"`
-	Quota      Quota     `json:"quota"`
+	Phase            string    `json:"phase"`
+	Active           bool      `json:"active"`
+	Linked           bool      `json:"linked"`
+	Ready            bool      `json:"ready"`
+	Paused           bool      `json:"paused"`
+	Account          string    `json:"account"`
+	Generation       int64     `json:"generation"`
+	Pending          int       `json:"pending"`
+	PendingSnapshots int       `json:"pending_snapshots"`
+	PendingExports   int       `json:"pending_exports"`
+	LastSync         time.Time `json:"last_sync"`
+	LastError        string    `json:"last_error"`
+	Quota            Quota     `json:"quota"`
 }

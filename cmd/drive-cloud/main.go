@@ -42,6 +42,8 @@ func run() error {
 	backup := flags.String("backup", "", "native backup folder")
 	input := flags.String("input", "/usr/bin/xochitl", "supported native image")
 	output := flags.String("output", "", "prepared local image path")
+	listenHost := flags.String("listen-host", "127.0.0.1", "loopback address for isolated protocol validation")
+	readOnly := flags.Bool("native-read-only", false, "reject every native write during protocol validation")
 	if err := flags.Parse(os.Args[2:]); err != nil {
 		return err
 	}
@@ -55,7 +57,7 @@ func run() error {
 	if command == "prepare-native" {
 		return nativeimport.Prepare(*input, *output)
 	}
-	if command == "prepare-drive" || command == "seed-backup" || command == "verify-drive" || command == "export-backup" {
+	if command == "prepare-drive" || command == "seed-backup" || command == "verify-drive" || command == "export-backup" || command == "publish-library" {
 		return prepareRemote(command, *base, *backup, *output)
 	}
 	if command == "verify-backup" || command == "verify-root" {
@@ -78,6 +80,9 @@ func run() error {
 	}
 	if command != "serve" && command != "init" && command != "prepare-ui" {
 		return fmt.Errorf("unknown command")
+	}
+	if ip := net.ParseIP(*listenHost); ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("the document bridge must bind exclusively to loopback")
 	}
 	log.SetLevel(log.WarnLevel)
 	if err := os.MkdirAll(*base, 0700); err != nil {
@@ -114,7 +119,7 @@ func run() error {
 	cfg := config.FromEnv()
 	cfg.DataDir = filepath.Join(*base, "data")
 	cfg.Port = "443"
-	cfg.BindHost = "127.0.0.1"
+	cfg.BindHost = *listenHost
 	cfg.TabletOnly = true
 	cfg.HashSchemaVersion = "4"
 	cfg.JWTSecretKey = []byte(secret)
@@ -157,7 +162,9 @@ func run() error {
 	}
 	defer engine.Close()
 	engine.SetExporter((nativeexport.Client{}).Export)
-	bridge := app.NewAppWithBackend(cfg, engine)
+	engine.SetExportVerifier(drivecloud.LibraryRevisionVerifier("/home/root/.local/share/remarkable/xochitl"))
+	backend := engine.NativeBackend(*readOnly)
+	bridge := app.NewAppWithBackend(cfg, backend)
 	engine.SetNotifier(func() { bridge.NotifySync(user) })
 	control := drivecloud.Control{Engine: engine, Token: token, UIReady: func(nonce string) error { return deviceops.UIReady(*base, nonce) }, Code: func() (string, error) {
 		if !engine.Status().Ready {
@@ -165,7 +172,7 @@ func run() error {
 		}
 		return bridge.PairCode(user)
 	}}
-	listener, err := net.Listen("tcp4", "127.0.0.1:12347")
+	listener, err := net.Listen("tcp4", net.JoinHostPort(*listenHost, "12347"))
 	if err != nil {
 		return err
 	}
@@ -182,12 +189,14 @@ func run() error {
 			log.Warn("Drive archive unavailable; native cloud not switched")
 		}
 	}
-	if _, err := os.Stat(filepath.Join(*base, "private", "active")); err == nil {
+	if _, err := os.Stat(filepath.Join(*base, "private", "active")); err == nil && !*readOnly {
 		engine.SetActive(true)
-		go engine.Run(ctx)
-		engine.Wake()
 	} else {
 		engine.SetActive(false)
+	}
+	if remote != nil && !*readOnly {
+		go engine.Run(ctx)
+		engine.Wake()
 	}
 	<-ctx.Done()
 	return nil

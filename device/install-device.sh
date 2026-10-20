@@ -88,6 +88,7 @@ rm -f "$base/ui-validation.attempted" "$base/private/ui-ready"
 mv "$base/ui-validation.pending.new" "$base/ui-validation.pending"
 sh "$base/device/install-ui.sh" "$payload" "$transaction"
 systemctl daemon-reload
+systemctl show xochitl -p ExecStart --value | grep -q -- 'launch-xochitl.sh --system' || die 'Native system lifecycle argument missing; refusing UI restart.'
 systemctl enable "$unit" >/dev/null
 systemctl restart "$unit"
 systemctl restart xochitl

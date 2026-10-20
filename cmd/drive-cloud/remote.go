@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/ddvk/rmfakecloud/internal/drivecloud"
+	"github.com/ddvk/rmfakecloud/internal/nativeexport"
 	"os"
 	"path/filepath"
 	"time"
@@ -36,6 +37,13 @@ func prepareRemote(command, base, backup, output string) error {
 			return err
 		}
 		if err = e.SeedVerifiedBackup(ctx, root, 0); err != nil {
+			return err
+		}
+	}
+	if command == "publish-library" {
+		e.SetExporter((nativeexport.Client{}).Export)
+		e.SetExportVerifier(drivecloud.LibraryRevisionVerifier("/home/root/.local/share/remarkable/xochitl"))
+		if err = e.PublishLibrary(ctx); err != nil {
 			return err
 		}
 	}

@@ -878,7 +878,7 @@ func (app *App) checkFilesPresence(c *gin.Context) {
 		return
 	}
 
-	mfs := messages.MissingFiles{}
+	mfs := messages.MissingFiles{MissingFiles: []string{}}
 
 	for _, fileid := range req.Files {
 		_, _, err := app.blobStorer.GetBlobURL(uid, fileid, false)
@@ -887,15 +887,15 @@ func (app *App) checkFilesPresence(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, mfs)
+	crcJSON(c, http.StatusOK, mfs)
 }
 
 func (app *App) checkMissingBlob(c *gin.Context) {
-	mhs := messages.MissingHashes{}
+	mhs := messages.MissingHashes{Hashes: []string{}}
 
 	// TODO
 
-	c.JSON(http.StatusOK, mhs)
+	crcJSON(c, http.StatusOK, mhs)
 }
 
 func (app *App) blobStorageRead(c *gin.Context) {

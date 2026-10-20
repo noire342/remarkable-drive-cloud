@@ -55,6 +55,19 @@ func TestNativeHTTPRequiresDurableDriveCommit(t *testing.T) {
 	if root.Schema != 4 || root.Generation != 1 {
 		t.Fatal("wrong native schema or generation")
 	}
+	for _, path := range []string{"/sync/v3/check-files", "/sync/v3/missing"} {
+		method, body := "GET", []byte(nil)
+		if path == "/sync/v3/check-files" {
+			method, body = "POST", []byte(`{"files":[]}`)
+		}
+		response := request(method, path, body, true)
+		if response.Code != 200 || response.Header().Get(common.GCPHashHeader) != crc(response.Body.Bytes()) {
+			t.Fatalf("native integrity response invalid for %s: %d %s", path, response.Code, response.Body.String())
+		}
+		if strings.Contains(response.Body.String(), "null") {
+			t.Fatalf("native integrity response has null instead of an empty array: %s", response.Body.String())
+		}
+	}
 	if err = e.updateMetadata(doc, map[string]any{"visibleName": "Pending"}); err != nil {
 		t.Fatal(err)
 	}
