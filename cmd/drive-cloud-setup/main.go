@@ -167,7 +167,21 @@ func run() error {
 			return err
 		}
 		defer f.Close()
-		script := "set -eu; umask 077; stage=$(mktemp -d /home/root/drive-cloud-stage.XXXXXX); trap 'rm -f \"$stage/payload.tar.gz\"' EXIT; cat > \"$stage/payload.tar.gz\"; printf '%s  %s\\n' '" + strings.ToLower(*sum) + "' \"$stage/payload.tar.gz\" | sha256sum -c -; mkdir \"$stage/payload\"; tar -xzf \"$stage/payload.tar.gz\" -C \"$stage/payload\"; sh \"$stage/payload/device/install-device.sh\""
+		script := `set -eu
+umask 077
+stage=$(mktemp -d /home/root/drive-cloud-stage.XXXXXX)
+cleanup() {
+  case "$stage" in /home/root/drive-cloud-stage.??????)
+    [ "$(dirname "$stage")" = /home/root ] && rm -rf -- "$stage"
+    ;;
+  esac
+}
+trap cleanup EXIT
+cat > "$stage/payload.tar.gz"
+printf '%s  %s\n' '` + strings.ToLower(*sum) + `' "$stage/payload.tar.gz" | sha256sum -c -
+mkdir "$stage/payload"
+tar -xzf "$stage/payload.tar.gz" -C "$stage/payload"
+sh "$stage/payload/device/install-device.sh"`
 		return ssh(ctx, *host, script, f)
 	case "uninstall":
 		return ssh(ctx, *host, "sh /home/root/drive-cloud/device/uninstall.sh", nil)

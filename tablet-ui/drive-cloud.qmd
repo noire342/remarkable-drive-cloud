@@ -25,7 +25,10 @@ AFFECT [[12599552112012170435]]
                 active: settings._selectedIndex === SettingsPage.Cloud
                 visible: active
                 source: "file:///home/root/drive-cloud/ui/CloudPage.qml"
-                Component.onCompleted: payloadLoader.visible = Qt.binding(function() { return !driveCloudPage.active; })
+                Component.onCompleted: {
+                    payloadLoader.visible = Qt.binding(function() { return !driveCloudPage.active; });
+                    payloadLoader.active = Qt.binding(function() { return !driveCloudPage.active; });
+                }
             }
         }
     END TRAVERSE

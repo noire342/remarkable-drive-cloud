@@ -16,6 +16,8 @@ The first production release is gated on **all** physical checks below.
 - Personal Google Desktop OAuth authorization completed through Edge. A first
   native snapshot of all 19 items was committed to the dedicated Drive archive;
   all 105 referenced objects were downloaded again and SHA-256/size checked.
+  A reconstructed private backup was parsed again with identical native root and
+  all 19 UUIDs. This is a host reconstruction, not a physical tablet restore.
 - ARMv7 tablet and Windows/macOS/Linux amd64/arm64 setup binaries built.
 - Pinned QMLDiff parses the Cloud page and applies its Settings patch to synthetic
   resources. Fake-tablet tests cover existing XOVI, successful installation and
@@ -51,3 +53,6 @@ Drive change-token expiry currently suspends synchronization and requires repair
 it never interprets an unavailable remote archive as an empty library.
 PDF export consistency during simultaneous handwriting still requires physical
 validation. No production cutover has been performed on the development tablet.
+The personal Google application currently remains in Testing. Its refresh token
+is temporary (Google's seven-day test-app rule); complete production branding and
+reauthorize before relying on unattended continuous operation.

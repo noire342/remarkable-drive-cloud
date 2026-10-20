@@ -41,6 +41,7 @@ class CloudSettingsTests(unittest.TestCase):
                 self.assertIn(text,result)
             self.assertIn('existingValue',(output/'qml/device/view/main/MainView.qml').read_text())
             self.assertEqual(result.count('id: driveCloudPage'),1)
+            self.assertIn('payloadLoader.active',result)
 
     def test_qml_components_parse(self):
         with tempfile.TemporaryDirectory() as folder:
