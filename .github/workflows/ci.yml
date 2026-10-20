@@ -22,6 +22,13 @@ jobs:
       - run: go vet -tags cloud ./...
       - run: python scripts/collect_licenses.py --check
       - run: python -m unittest discover -s tests -v
+      - name: PowerShell installer syntax
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tokens = $null; $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'install.ps1'), [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
       - name: Race detector
         if: runner.os == 'Linux'
         run: go test -race -tags cloud ./internal/drivecloud ./internal/deviceops
