@@ -18,6 +18,14 @@ The first production release is gated on **all** physical checks below.
   all 105 referenced objects were downloaded again and SHA-256/size checked.
   A reconstructed private backup was parsed again with identical native root and
   all 19 UUIDs. This is a host reconstruction, not a physical tablet restore.
+- The personal OAuth application's public branding references were completed.
+  After explicit owner authorization, its Google status changed from Testing
+  to Production and a fresh offline grant was verified against the intended
+  account. Credentials were transferred through pinned SSH with a backup and
+  atomic replacement; the native UI was not restarted. A scan of all tracked
+  files and the development bundle found none of this client's identifiers,
+  client secret, access token or refresh token. Every user supplies their own
+  OAuth client; no shared client is distributed.
 - ARMv7 tablet and Windows/macOS/Linux amd64/arm64 setup binaries built.
 - Settings > Cloud installed on the exact device and its authenticated readiness
   checked. The personal Drive credentials were transferred privately over pinned
@@ -83,6 +91,8 @@ development so that unaccepted migrations cannot delete archive versions.
 PDF export compares the native revision before and after rendering; a concurrent
 edit defers the export. Its behavior during actual handwriting still needs physical
 validation. No production cutover has been performed on the development tablet.
-The personal Google application currently remains in Testing. Its refresh token
-is temporary (Google's seven-day test-app rule); complete production branding and
-reauthorize before relying on unattended continuous operation.
+The development owner's personal Google application is in Production and has
+been reauthorized. New users must configure their own client; Testing grants
+remain unsuitable for unattended operation. Production is not Google verification
+or a guarantee against token revocation. Long-duration operation still needs
+physical acceptance.
