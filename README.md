@@ -1,5 +1,12 @@
 # reMarkable Drive Cloud
 
+**STOP: physical boot validation failed on the development tablet (2026-10-20).**
+After experimental startup changes, the tablet lost both its UI and ordinary
+USB/Wi-Fi SSH access. Recovery is not complete. **Do not install, activate, update
+or reboot a tablet using this experimental integration.** Passing unit tests and
+a successful initial synchronization do not establish safe boot behavior. Work
+is suspended pending physical recovery and an independently verified boot guard.
+
 An experimental, autonomous Google Drive document cloud for **reMarkable 2,
 firmware 3.27.3.0**. Based on a pinned fork of rmfakecloud; AGPL-3.0.
 
