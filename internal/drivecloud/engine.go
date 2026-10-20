@@ -500,7 +500,7 @@ func (e *Engine) Run(ctx context.Context) {
 		case <-timer.C:
 		}
 		status := e.Status()
-		if status.Paused || (!status.Active && status.PendingExports == 0) {
+		if status.Paused || (!status.Active && status.PendingExports == 0 && status.PendingSnapshots == 0) {
 			continue
 		}
 		e.mu.Lock()

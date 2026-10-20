@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const fileFields = "id,name,mimeType,parents,trashed,md5Checksum,sha256Checksum,size,version,appProperties"
@@ -26,6 +27,7 @@ type Drive struct {
 	Base       string
 	UploadBase string
 	Sessions   string
+	retryWait  func(context.Context, time.Duration) error
 }
 type uploadSession struct {
 	URL  string `json:"url"`
@@ -34,8 +36,9 @@ type uploadSession struct {
 	Size int64  `json:"size"`
 }
 type HTTPError struct {
-	Status int
-	Reason string
+	Status     int
+	Reason     string
+	RetryAfter time.Duration
 }
 
 func (e *HTTPError) Error() string {
@@ -44,7 +47,7 @@ func (e *HTTPError) Error() string {
 func NewDrive(httpClient *http.Client, sessions string) *Drive {
 	return &Drive{HTTP: httpClient, Base: "https://www.googleapis.com/drive/v3", UploadBase: "https://www.googleapis.com/upload/drive/v3", Sessions: sessions}
 }
-func (d *Drive) request(ctx context.Context, method, u string, body io.Reader, headers map[string]string) (*http.Response, error) {
+func (d *Drive) requestOnce(ctx context.Context, method, u string, body io.Reader, headers map[string]string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, method, u, body)
 	if err != nil {
 		return nil, err
@@ -61,6 +64,12 @@ func (d *Drive) request(ctx context.Context, method, u string, body io.Reader, h
 	}
 	resp, err := d.HTTP.Do(req)
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if errors.Is(err, ErrNotLinked) {
+			return nil, ErrNotLinked
+		}
 		return nil, fmt.Errorf("Google Drive connection interrupted")
 	}
 	if resp.StatusCode == 404 {
@@ -84,7 +93,7 @@ func (d *Drive) request(ctx context.Context, method, u string, body io.Reader, h
 		if len(body.Error.Errors) > 0 && regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]{0,63}$`).MatchString(body.Error.Errors[0].Reason) {
 			reason = body.Error.Errors[0].Reason
 		}
-		return nil, &HTTPError{Status: resp.StatusCode, Reason: reason}
+		return nil, &HTTPError{Status: resp.StatusCode, Reason: reason, RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	return resp, nil
 }
@@ -316,7 +325,7 @@ func (d *Drive) Put(ctx context.Context, meta File, path string) (File, error) {
 				input.Close()
 				return File{}, e
 			}
-			resp, e = d.request(ctx, "PUT", session.URL, io.LimitReader(input, chunk), map[string]string{"Content-Length": strconv.FormatInt(chunk, 10), "Content-Range": fmt.Sprintf("bytes %d-%d/%d", offset, offset+chunk-1, size), "Content-Type": meta.MIME})
+			resp, e = d.request(ctx, "PUT", session.URL, io.NewSectionReader(input, offset, chunk), map[string]string{"Content-Length": strconv.FormatInt(chunk, 10), "Content-Range": fmt.Sprintf("bytes %d-%d/%d", offset, offset+chunk-1, size), "Content-Type": meta.MIME})
 			if e != nil {
 				input.Close()
 				return File{}, e

@@ -26,6 +26,13 @@ The first production release is gated on **all** physical checks below.
   private home, mount namespace and D-Bus. Every native file matched the backup
   SHA-256. This proves isolated native download compatibility, not production
   migration or complete bidirectional acceptance.
+- In a second, isolated one-notebook Drive vault, the shipped client uploaded
+  metadata changes and received the generation acknowledgement only after the
+  Drive snapshot completed. Its native D-Bus batch finished with result 0.
+  Restoring generation 1 created a new UUID, which the client then downloaded.
+  A fresh remote download verified both documents and all six native files;
+  restored content and ink matched the original fixture byte-for-byte. The
+  production library, credentials and synchronization remained unchanged.
 - A real preparation-mode uninstall recovered the prior launcher and Quick Share.
   A missing `--system` in the candidate launcher had prevented the native Restart
   action from proceeding after the GUI exited. The launcher now preserves that
@@ -38,6 +45,10 @@ The first production release is gated on **all** physical checks below.
 - The corrected preparation install completed on-device with native `--system`
   present, no service restart loop, and all 19 preview exports completed. Pending
   snapshots and preview exports are reported separately; final queue is zero.
+- Retry tests cover bounded exponential backoff with jitter for rate-limit
+  rejections, `Retry-After`, cancellation, body replay, and preservation of the
+  resumable-upload status check after uncertain writes. Preparation also resumes
+  an interrupted first snapshot when no preview exports are yet visible.
 - Pinned QMLDiff parses the Cloud page and applies its Settings patch to synthetic
   resources. Fake-tablet tests cover existing XOVI, successful installation and
   uninstall, crashed UI, missing readiness and firmware rejection.

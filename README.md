@@ -55,6 +55,9 @@ required to detect files users add directly to the inbox; application operations
 are restricted to the dedicated vault IDs. Credentials and backups never belong
 in this repository.
 
+See [privacy and Google Drive access](docs/PRIVACY.md) for data flows,
+credentials, retention and revocation.
+
 ## Source and licenses
 
 Upstream base: `ddvk/rmfakecloud@3c6de006bdc465bdc0aa14b4de8fac78b5096ee6`.

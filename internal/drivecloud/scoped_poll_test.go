@@ -5,11 +5,47 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 )
 
 type scopedRemote struct {
 	*fakeRemote
 	t *testing.T
+}
+
+func TestPreparationWorkerResumesFirstPendingSnapshotWithoutExports(t *testing.T) {
+	e, remote := setupEngine(t)
+	doc := fixture(t, e, "", "Interrupted initial backup")
+	g, err := e.currentGraph()
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.Documents[doc.ID] = doc
+	remote.failRole = "snapshot"
+	if e.commitGraph(context.Background(), g) == nil {
+		t.Fatal("expected interrupted snapshot")
+	}
+	if status := e.Status(); status.PendingSnapshots != 1 || status.PendingExports != 0 || status.Active {
+		t.Fatal("invalid preparation setup", status)
+	}
+	remote.failRole = ""
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); e.Run(ctx) }()
+	e.Wake()
+	for ctx.Err() == nil {
+		status := e.Status()
+		if status.Generation == 1 && status.Pending == 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if status := e.Status(); status.Generation != 1 || status.Pending != 0 {
+		t.Fatalf("preparation queue did not recover: %+v", status)
+	}
 }
 
 func (r scopedRemote) Changes(context.Context, string) (Changes, error) {
